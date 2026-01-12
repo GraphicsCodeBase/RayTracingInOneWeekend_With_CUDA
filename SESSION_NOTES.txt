@@ -1,0 +1,506 @@
+================================================================================
+  RAY TRACING IN ONE WEEKEND - CUDA PROJECT
+  Session Notes & Progress Summary
+================================================================================
+
+PROJECT OVERVIEW
+================================================================================
+Goal: Learn CUDA GPU programming by implementing a ray tracer following the
+      "Ray Tracing in One Weekend" tutorial
+      (https://raytracing.github.io/books/RayTracingInOneWeekend.html)
+
+Approach: Adapt the C++ tutorial to use CUDA for GPU acceleration
+          - Menu system in C++ (main.cpp)
+          - Rendering functions in CUDA (.cu files)
+          - Classes that work on both CPU and GPU
+
+Target: NVIDIA CUDA Toolkit 13.0
+Output: PPM image files (viewable with GIMP, IrfanView, or online viewers)
+
+
+PROJECT STRUCTURE
+================================================================================
+RayTracingInOneWeekend_With_CUDA/
+├── CMakeLists.txt              # Smart build system (auto-detects CUDA)
+├── build.bat                   # Generates Visual Studio solution
+├── .gitignore                  # Ignores build files, .sln, .ppm images
+├── SESSION_NOTES.txt           # This file!
+└── src/
+    ├── main.cpp                # C++ menu system (entry point)
+    ├── gradient.cu             # Chapter 2: Simple gradient with CUDA
+    ├── gradient.cuh            # Header for gradient function
+    ├── vec3.cuh                # Chapter 3: Vector class (CPU + GPU)
+    ├── vec3_gradient.cu        # Chapter 3: Gradient using vec3 on GPU
+    └── vec3_gradient.cuh       # Header for vec3 gradient
+
+Output files location: ../out_folder/
+    - gradient.ppm              # Output from option 1
+    - vec3_gradient.ppm         # Output from option 2
+
+
+HOW TO BUILD AND RUN
+================================================================================
+1. Generate Visual Studio Solution:
+   > build.bat
+
+2. Open the solution:
+   > Open build\RayTracingCUDA.sln in Visual Studio
+
+3. Build and Run:
+   > Press F5 or Build → Start Debugging
+
+4. Use the menu:
+   - Option 1: Simple gradient (raw CUDA)
+   - Option 2: Gradient with vec3 class
+   - Option 0: Exit
+
+5. View output images:
+   - Located in ../out_folder/
+   - Use GIMP, IrfanView, or online PPM viewers
+
+
+TUTORIAL PROGRESS
+================================================================================
+✅ Chapter 2: Output an Image
+   - Implemented PPM file output (P6 binary format for speed)
+   - Basic CUDA kernel to generate gradient
+   - Learned thread indexing and GPU parallelism
+
+✅ Chapter 3: The vec3 Class
+   - Created CUDA-compatible vec3 class
+   - Learned __host__ __device__ annotations
+   - Used vec3 math operations in GPU kernels
+
+⏭️ Chapter 4: Rays, a Simple Camera, and Background (NEXT)
+   - Need to create ray class
+   - Implement simple camera
+   - Render sky gradient with rays
+
+⏭️ Chapter 5: Adding a Sphere
+   - Ray-sphere intersection
+   - First 3D object rendering
+
+⏭️ Chapter 6: Surface Normals and Multiple Objects
+⏭️ Chapter 7: Antialiasing
+⏭️ Chapter 8: Diffuse Materials
+⏭️ Chapter 9: Metal
+⏭️ Chapter 10: Dielectrics
+⏭️ Chapter 11: Positionable Camera
+⏭️ Chapter 12: Defocus Blur
+
+
+KEY CONCEPTS LEARNED
+================================================================================
+
+1. PPM IMAGE FORMAT
+   ----------------
+   Two formats available:
+
+   P3 (ASCII - SLOW):
+   ----------------
+   P3
+   256 256
+   255
+   255 0 0
+   254 0 0
+   ... (each RGB value as text)
+
+   Performance: ~3500ms for 1920×1080 image
+
+   P6 (BINARY - FAST): ✅ Currently using
+   ----------------
+   P6
+   256 256
+   255
+   <binary RGB data>
+
+   Performance: ~10ms for 1920×1080 image
+
+   Code:
+   -----
+   std::ofstream outfile("image.ppm", std::ios::binary);
+   outfile << "P6\n" << width << ' ' << height << "\n255\n";
+   outfile.write(reinterpret_cast<char*>(image_data), image_size);
+
+
+2. CUDA MEMORY MANAGEMENT
+   -----------------------
+   Pattern used throughout the project:
+
+   // 1. Allocate host (CPU) memory
+   unsigned char* h_image = new unsigned char[image_size];
+
+   // 2. Allocate device (GPU) memory
+   unsigned char* d_image;
+   cudaMalloc(&d_image, image_size * sizeof(unsigned char));
+
+   // 3. Launch kernel to process on GPU
+   myKernel<<<gridSize, blockSize>>>(d_image, width, height);
+   cudaDeviceSynchronize();
+
+   // 4. Copy results back to CPU
+   cudaMemcpy(h_image, d_image, image_size, cudaMemcpyDeviceToHost);
+
+   // 5. Cleanup
+   cudaFree(d_image);
+   delete[] h_image;
+
+
+3. CUDA KERNELS AND THREAD INDEXING
+   ---------------------------------
+   The most important concept in CUDA!
+
+   CPU Version (Sequential):
+   ------------------------
+   for (int j = 0; j < height; j++) {        // Loop over rows
+       for (int i = 0; i < width; i++) {    // Loop over columns
+           // Process pixel (i, j)
+       }
+   }
+   // Time: Processes pixels one by one
+
+   GPU Version (Parallel):
+   ----------------------
+   __global__ void kernel(unsigned char* image, int width, int height) {
+       // Each thread calculates which pixel it handles
+       int i = blockIdx.x * blockDim.x + threadIdx.x;  // Column
+       int j = blockIdx.y * blockDim.y + threadIdx.y;  // Row
+
+       if (i >= width || j >= height) return;
+
+       // Process THIS THREAD'S pixel (i, j)
+       // No loops needed!
+   }
+   // Time: All pixels processed simultaneously!
+
+   Launch:
+   -------
+   dim3 blockSize(16, 16);    // 256 threads per block
+   dim3 gridSize(120, 68);    // 8,160 blocks for 1920×1080
+   kernel<<<gridSize, blockSize>>>(d_image, width, height);
+   // Total: 2,088,960 threads running in parallel!
+
+
+4. THREAD INDEXING FORMULA EXPLAINED
+   ----------------------------------
+   i = blockIdx.x * blockDim.x + threadIdx.x;
+
+   Breaking it down:
+   ----------------
+   blockIdx.x  = Which block horizontally (0, 1, 2, 3, ...)
+   blockDim.x  = How many threads per block (e.g., 16)
+   threadIdx.x = Position within the block (0 to 15)
+
+   Example Calculation:
+   -------------------
+   Thread in Block (2, 1) at position (5, 3)
+   Using 16×16 blocks:
+
+   i = blockIdx.x * blockDim.x + threadIdx.x
+     = 2 * 16 + 5
+     = 32 + 5
+     = 37  ← This thread handles COLUMN 37
+
+   j = blockIdx.y * blockDim.y + threadIdx.y
+     = 1 * 16 + 3
+     = 16 + 3
+     = 19  ← This thread handles ROW 19
+
+   Result: This thread processes pixel (37, 19)
+
+   Visual Example (64×64 image, 16×16 blocks):
+   -------------------------------------------
+        Column: 0    16    32    48    64
+              ┌─────┬─────┬─────┬─────┐
+         Row 0│ B00 │ B10 │ B20 │ B30 │  B = Block
+           16│ B01 │ B11 │ B21 │ B31 │  Each block = 16×16 threads
+           32│ B02 │ B12 │ B22 │ B32 │
+           48│ B03 │ B13 │ B23 │ B33 │
+              └─────┴─────┴─────┴─────┘
+
+   Block (1, 1) handles pixels from (16,16) to (31,31)
+   Thread (0, 0) in Block (1, 1) → pixel (16, 16)
+   Thread (15, 15) in Block (1, 1) → pixel (31, 31)
+
+
+5. CUDA FUNCTION ANNOTATIONS
+   --------------------------
+   __global__:
+   ----------
+   - Kernel function (called from CPU, runs on GPU)
+   - Launched with <<<>>> syntax
+   - Example: __global__ void myKernel(...) { }
+
+   __device__:
+   ----------
+   - Device function (called from GPU, runs on GPU)
+   - Can only be called from kernels or other __device__ functions
+   - Example: __device__ float helper(...) { }
+
+   __host__ __device__:
+   -------------------
+   - Works on BOTH CPU and GPU!
+   - This is KEY for making C++ classes GPU-compatible
+   - Compiler generates TWO versions of the function
+   - Example: __host__ __device__ vec3 operator+(...) { }
+
+
+6. MAKING C++ CLASSES WORK ON GPU
+   -------------------------------
+   Regular C++ class (CPU only):
+   ----------------------------
+   class vec3 {
+       double e[3];
+
+       vec3(double x, double y, double z) : e{x, y, z} {}
+       double length() const { return sqrt(...); }
+       vec3 operator+(const vec3& v) const { ... }
+   };
+
+   CUDA-compatible class (CPU + GPU):
+   ---------------------------------
+   class vec3 {
+       double e[3];
+
+       __host__ __device__ vec3(double x, double y, double z) : e{x,y,z} {}
+       __host__ __device__ double length() const { return sqrt(...); }
+       __host__ __device__ vec3 operator+(const vec3& v) const { ... }
+       //           ↑
+       // This makes it work on GPU too!
+   };
+
+   Usage in kernel:
+   ---------------
+   __global__ void kernel(...) {
+       vec3 color(1.0, 0.5, 0.2);        // Create on GPU
+       vec3 tint(0.1, 0.1, 0.1);         // Create on GPU
+       color = color + tint;             // Math on GPU
+       double len = color.length();      // Methods work on GPU
+   }
+
+   Note: std::cout does NOT work in kernels!
+         Only __host__ functions can use iostream
+
+
+7. VEC3 CLASS IMPLEMENTATION
+   --------------------------
+   Located in: src/vec3.cuh
+
+   Features:
+   - Stores 3D vectors as double[3]
+   - Type aliases: point3, color (both are vec3)
+   - All operators work on GPU: +, -, *, /
+   - Utility functions: dot(), cross(), unit_vector()
+   - All functions marked __host__ __device__
+
+   Usage:
+   -----
+   color pixel_color(r, g, b);           // RGB color
+   point3 origin(0, 0, 0);               // 3D point
+   vec3 direction = point - origin;       // Vector math
+   double len = direction.length();       // Length calculation
+
+
+PERFORMANCE NOTES
+================================================================================
+Timing Results (1920×1080 image):
+---------------------------------
+GPU computation:   ~2ms    ⚡ EXTREMELY FAST
+File writing (P6): ~10ms   ⚡ FAST
+Total time:        ~12ms   ⚡ EXCELLENT
+
+Key Insight:
+-----------
+The GPU is incredibly fast! Always profile to find real bottlenecks.
+In our case, initially file writing was the bottleneck (~3500ms with P3),
+but switching to binary P6 format fixed it.
+
+GPU parallelism works because:
+- Each pixel is independent
+- No synchronization needed between threads
+- Perfect for "embarrassingly parallel" problems
+
+
+COMMON CUDA PATTERNS
+================================================================================
+
+Pattern 1: Basic Kernel
+-----------------------
+__global__ void myKernel(unsigned char* output, int width, int height) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (x >= width || y >= height) return;  // Bounds check
+
+    // Do work for pixel (x, y)
+}
+
+Pattern 2: Launch Configuration
+-------------------------------
+dim3 threadsPerBlock(16, 16);
+dim3 numBlocks(
+    (width + threadsPerBlock.x - 1) / threadsPerBlock.x,
+    (height + threadsPerBlock.y - 1) / threadsPerBlock.y
+);
+myKernel<<<numBlocks, threadsPerBlock>>>(data, width, height);
+
+Pattern 3: Error Checking
+-------------------------
+cudaError_t err = cudaGetLastError();
+if (err != cudaSuccess) {
+    std::cerr << "CUDA error: " << cudaGetErrorString(err) << std::endl;
+}
+
+cudaDeviceSynchronize();  // Wait for GPU to finish
+
+
+RESUMING WHERE WE LEFT OFF
+================================================================================
+
+Current State:
+-------------
+- ✅ CMake project configured for CUDA
+- ✅ Menu system working
+- ✅ PPM output optimized (P6 binary)
+- ✅ Basic CUDA kernel working (gradient)
+- ✅ vec3 class working on GPU
+- ✅ Demonstrated vec3 math in kernels
+
+Next Steps (Chapter 4 - Rays):
+------------------------------
+1. Create ray.cuh - Ray class with __host__ __device__
+
+   class ray {
+       point3 orig;
+       vec3 dir;
+
+       __host__ __device__ ray() {}
+       __host__ __device__ ray(const point3& origin, const vec3& direction)
+           : orig(origin), dir(direction) {}
+
+       __host__ __device__ point3 origin() const { return orig; }
+       __host__ __device__ vec3 direction() const { return dir; }
+       __host__ __device__ point3 at(double t) const {
+           return orig + t * dir;
+       }
+   };
+
+2. Create camera.cuh - Simple camera setup
+   - Viewport dimensions
+   - Focal length
+   - Ray generation for each pixel
+
+3. Create sky_gradient.cu - Render sky with rays
+   - Cast rays from camera through each pixel
+   - Blend white → blue based on ray direction
+   - First "real" ray tracing image!
+
+4. Add option 3 to menu
+
+Expected Result:
+---------------
+A sky gradient that's blue at top, white at bottom
+This demonstrates:
+- Generating rays from camera
+- Computing ray direction
+- Using ray direction to determine color
+
+
+IMPORTANT REMINDERS FOR NEXT SESSION
+================================================================================
+
+1. CUDA Compilation:
+   - CMakeLists.txt auto-detects .cu files
+   - Always run build.bat after adding new files
+   - .cu files can contain C++ code (CUDA compiler handles both)
+
+2. Debugging:
+   - Use printf() in kernels, NOT std::cout
+   - Check CUDA errors after every kernel launch
+   - cudaDeviceSynchronize() makes errors synchronous
+
+3. Memory:
+   - Host pointers (h_) cannot be used in kernels
+   - Device pointers (d_) cannot be dereferenced on CPU
+   - Always match cudaMalloc with cudaFree
+   - Always match new with delete
+
+4. Performance:
+   - 16×16 threads per block is a good default
+   - Grid size must cover entire image
+   - Binary P6 format is ~350× faster than ASCII P3
+
+5. Class Design:
+   - Add __host__ __device__ to ALL methods you want on GPU
+   - Keep classes simple (no virtual functions, no std:: containers)
+   - Header-only is easiest (use .cuh files)
+
+6. File Organization:
+   - .cu files: Implementation with kernels
+   - .cuh files: Headers with class definitions
+   - .cpp files: CPU-only code (like main menu)
+
+
+QUESTIONS TO ASK WHEN RESUMING
+================================================================================
+
+1. "Can you show me what we accomplished last time?"
+   → I can show the current menu and explain the gradient examples
+
+2. "Let's continue with Chapter 4 - Rays and Camera"
+   → I'll create ray.cuh and implement sky gradient
+
+3. "Can you explain [concept] again?"
+   → Ask about thread indexing, memory management, etc.
+
+4. "The program isn't working, can you help?"
+   → Run build.bat, check for errors, verify CUDA setup
+
+
+USEFUL REFERENCES
+================================================================================
+
+Tutorial:
+    https://raytracing.github.io/books/RayTracingInOneWeekend.html
+
+CUDA Programming Guide:
+    https://docs.nvidia.com/cuda/cuda-c-programming-guide/
+
+CUDA Toolkit 13.0:
+    Installed and configured for this project
+
+Image Viewers for PPM:
+    - GIMP (free): https://www.gimp.org/
+    - IrfanView (Windows): https://www.irfanview.com/
+    - Online: Search "PPM viewer online"
+
+
+QUICK REFERENCE - CUDA THREAD INDEXING
+================================================================================
+
+Given:
+    dim3 blockSize(16, 16);
+    dim3 gridSize(120, 68);
+    kernel<<<gridSize, blockSize>>>(...);
+
+Each thread gets:
+    threadIdx.x, threadIdx.y  (0-15, 0-15)
+    blockIdx.x, blockIdx.y    (0-119, 0-67)
+    blockDim.x, blockDim.y    (16, 16)
+
+Calculate pixel:
+    x = blockIdx.x * blockDim.x + threadIdx.x;
+    y = blockIdx.y * blockDim.y + threadIdx.y;
+
+Example:
+    Thread (5, 3) in Block (10, 20)
+    → x = 10 * 16 + 5 = 165
+    → y = 20 * 16 + 3 = 323
+    → Processes pixel (165, 323)
+
+
+END OF SESSION NOTES
+================================================================================
+Last Updated: 2026-01-13
+Next Objective: Chapter 4 - Rays, Simple Camera, and Background
+================================================================================
