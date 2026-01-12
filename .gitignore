@@ -42,3 +42,8 @@ cmake_install.cmake
 # OS specific
 Thumbs.db
 .DS_Store
+
+# Output images
+*.ppm
+*.png
+*.jpg
