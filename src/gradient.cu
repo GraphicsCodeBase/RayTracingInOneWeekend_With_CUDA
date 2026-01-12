@@ -1,6 +1,7 @@
 #include "gradient.cuh"
 #include <iostream>
 #include <fstream>
+#include <chrono>
 #include <cuda_runtime.h>
 
 // CUDA kernel to generate gradient
@@ -36,8 +37,8 @@ __global__ void gradientKernel(unsigned char* image, int width, int height) {
 
 void renderGradient() {
     // Image dimensions
-    const int image_width = 256;
-    const int image_height = 256;
+    const int image_width = 1920;
+    const int image_height = 1080;
     const int image_size = image_width * image_height * 3; // RGB for each pixel
 
     // Allocate host memory for the image
@@ -57,6 +58,9 @@ void renderGradient() {
 
     std::cout << "Launching CUDA kernel with grid(" << gridSize.x << ", " << gridSize.y
               << ") and block(" << blockSize.x << ", " << blockSize.y << ")\n";
+
+    // Start GPU timer
+    auto gpu_start = std::chrono::high_resolution_clock::now();
 
     // Launch the kernel
     gradientKernel<<<gridSize, blockSize>>>(d_image, image_width, image_height);
@@ -79,7 +83,12 @@ void renderGradient() {
         return;
     }
 
+    // End GPU timer
+    auto gpu_end = std::chrono::high_resolution_clock::now();
+    auto gpu_duration = std::chrono::duration_cast<std::chrono::milliseconds>(gpu_end - gpu_start);
+
     std::cout << "CUDA kernel completed successfully!\n";
+    std::cout << "GPU computation time: " << gpu_duration.count() << " ms\n";
 
     // Copy result from device to host
     cudaMemcpy(h_image, d_image, image_size * sizeof(unsigned char), cudaMemcpyDeviceToHost);
@@ -87,31 +96,32 @@ void renderGradient() {
     // Free device memory
     cudaFree(d_image);
 
-    // Write to PPM file
-    std::ofstream outfile("../out_folder/gradient.ppm");
+    // Write to PPM file (binary format P6 for speed)
+    std::ofstream outfile("../out_folder/gradient.ppm", std::ios::binary);
     if (!outfile.is_open()) {
         std::cerr << "Error: Could not create output file!" << std::endl;
         delete[] h_image;
         return;
     }
 
-    // PPM Header
-    outfile << "P3\n" << image_width << ' ' << image_height << "\n255\n";
+    // Start file writing timer
+    auto write_start = std::chrono::high_resolution_clock::now();
 
-    // Write pixel data
-    for (int j = 0; j < image_height; j++) {
-        for (int i = 0; i < image_width; i++) {
-            int pixelIndex = (j * image_width + i) * 3;
-            outfile << static_cast<int>(h_image[pixelIndex + 0]) << ' '
-                    << static_cast<int>(h_image[pixelIndex + 1]) << ' '
-                    << static_cast<int>(h_image[pixelIndex + 2]) << '\n';
-        }
-    }
+    // PPM Header (P6 = binary format)
+    outfile << "P6\n" << image_width << ' ' << image_height << "\n255\n";
+
+    // Write pixel data as raw binary (much faster!)
+    outfile.write(reinterpret_cast<char*>(h_image), image_size);
+
+    // End file writing timer
+    auto write_end = std::chrono::high_resolution_clock::now();
+    auto write_duration = std::chrono::duration_cast<std::chrono::milliseconds>(write_end - write_start);
 
     outfile.close();
 
     // Free host memory
     delete[] h_image;
 
+    std::cout << "File writing time: " << write_duration.count() << " ms\n";
     std::cout << "Image written to gradient.ppm\n";
 }

@@ -1,9 +1,9 @@
 #include <iostream>
 #include <string>
 #include "gradient.cuh"
+#include "vec3_gradient.cuh"
 
 // Future functions will be declared here as we progress through the tutorial
-// void renderWithVec3();
 // void renderSky();
 // void renderSphere();
 // etc.
@@ -14,7 +14,7 @@ void displayMenu() {
     std::cout << "=========================================\n\n";
     std::cout << "Select an image to generate:\n\n";
     std::cout << "  1. Simple Gradient (Chapter 2)\n";
-    std::cout << "  2. (Coming soon...)\n";
+    std::cout << "  2. Gradient with vec3 Class (Chapter 3)\n";
     std::cout << "  3. (Coming soon...)\n";
     std::cout << "\n  0. Exit\n";
     std::cout << "\n=========================================\n";
@@ -41,6 +41,11 @@ int main() {
             case 1:
                 std::cout << "Generating simple gradient image...\n";
                 renderGradient();
+                break;
+
+            case 2:
+                std::cout << "Generating gradient using vec3 class...\n";
+                renderVec3Gradient();
                 break;
 
             case 0:
